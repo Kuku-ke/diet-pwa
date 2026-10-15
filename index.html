@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>AI 膳食与宏量营养素管家</title>
+
+  <!-- PWA 标准配置与 iOS 兼容标签 -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#10b981">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="AI膳食管家">
+  <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='115' fill='%2310b981'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-size='280'>🥗</text></svg>">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { -webkit-tap-highlight-color: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .safe-top { padding-top: env(safe-area-inset-top, 0px); }
+    .progress-bar { transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen pb-24">
+
+  <!-- 顶部导航与设置/安装按钮 -->
+  <header class="bg-white sticky top-0 z-20 px-4 py-3 shadow-sm flex justify-between items-center safe-top">
+    <div class="flex items-center gap-2">
+      <div>
+        <div class="flex items-center gap-1.5">
+          <h1 class="text-lg font-bold text-slate-900">AI 每日膳食追踪</h1>
+          <span id="netStatus" class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium">在线</span>
+        </div>
+        <p id="currentDate" class="text-xs text-slate-400"></p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <!-- Android Chrome 原生安装按钮 (满足条件时自动浮现) -->
+      <button id="installBtn" onclick="triggerInstall()" class="hidden px-2.5 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-bold shadow-sm active:bg-emerald-700">
+        📲 安装App
+      </button>
+      <button onclick="toggleModal('settingsModal')" class="p-2 rounded-full bg-slate-100 text-slate-600 text-xs font-medium active:bg-slate-200">
+        ⚙️ 目标与API
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-md mx-auto p-4 space-y-5">
+
+    <!-- 1. 每日总览仪表盘 -->
+    <section class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+      <div class="flex justify-between items-end mb-4">
+        <div>
+          <span class="text-xs font-medium text-slate-400 uppercase">今日已摄入</span>
+          <div class="text-3xl font-extrabold text-slate-900 mt-1">
+            <span id="calCurrent">0</span>
+            <span class="text-sm font-normal text-slate-400">/ <span id="calTarget">2000</span> kcal</span>
+          </div>
+        </div>
+        <div class="text-right">
+          <span class="text-xs text-slate-400">剩余额度</span>
+          <p id="calRemain" class="text-lg font-bold text-emerald-600">2000 kcal</p>
+        </div>
+      </div>
+
+      <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden mb-5">
+        <div id="calBar" class="progress-bar bg-emerald-500 h-full rounded-full" style="width: 0%"></div>
+      </div>
+
+      <!-- 三大宏量营养素卡片 -->
+      <div class="grid grid-cols-3 gap-3 text-center">
+        <div class="bg-blue-50/60 p-3 rounded-xl">
+          <p class="text-xs text-blue-600 font-semibold">蛋白质</p>
+          <p class="text-sm font-bold mt-1"><span id="proCurrent">0</span>/<span id="proTarget">150</span>g</p>
+          <div class="w-full bg-blue-100 h-1.5 rounded-full mt-2 overflow-hidden">
+            <div id="proBar" class="progress-bar bg-blue-500 h-full" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="bg-amber-50/60 p-3 rounded-xl">
+          <p class="text-xs text-amber-600 font-semibold">碳水</p>
+          <p class="text-sm font-bold mt-1"><span id="carbCurrent">0</span>/<span id="carbTarget">200</span>g</p>
+          <div class="w-full bg-amber-100 h-1.5 rounded-full mt-2 overflow-hidden">
+            <div id="carbBar" class="progress-bar bg-amber-500 h-full" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="bg-rose-50/60 p-3 rounded-xl">
+          <p class="text-xs text-rose-600 font-semibold">脂肪</p>
+          <p class="text-sm font-bold mt-1"><span id="fatCurrent">0</span>/<span id="fatTarget">65</span>g</p>
+          <div class="w-full bg-rose-100 h-1.5 rounded-full mt-2 overflow-hidden">
+            <div id="fatBar" class="progress-bar bg-rose-500 h-full" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 拍照/传图 AI 识别区 -->
+    <section class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+      <h2 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-1.5">
+        📸 拍照/上传图片分析热量
+      </h2>
+
+      <input type="file" id="imageInput" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
+
+      <div onclick="document.getElementById('imageInput').click()" 
+           class="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer active:bg-slate-50 transition">
+        <div id="previewContainer" class="hidden mb-3">
+          <img id="imagePreview" class="max-h-48 mx-auto rounded-lg object-cover shadow-sm" alt="预览">
+        </div>
+        <div id="uploadPrompt" class="py-4">
+          <div class="text-3xl mb-1">🍱</div>
+          <p class="text-sm font-medium text-slate-600">点击拍照或从相册选择食物图片</p>
+          <p class="text-xs text-slate-400 mt-1">支持 AI 自动识别多种食物分量与宏量营养素</p>
+        </div>
+      </div>
+
+      <div id="aiLoading" class="hidden py-4 text-center text-sm text-emerald-600 font-medium animate-pulse">
+        🧠 AI 正在识别食物成分与估算重量...
+      </div>
+
+      <div class="mt-4 pt-4 border-t border-slate-100 space-y-3">
+        <div class="flex justify-between items-center">
+          <span class="text-xs font-semibold text-slate-400">食物明细（可手动录入或修改 AI 结果）</span>
+          <button onclick="simulateAIRecognition()" class="text-xs text-emerald-600 font-medium underline">示例图片测试</button>
+        </div>
+        <input id="foodName" type="text" placeholder="食物名称（如：香煎鸡胸肉配西兰花）" 
+               class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-500">
+        
+        <div class="grid grid-cols-4 gap-2">
+          <div>
+            <label class="text-[11px] text-slate-400">热量(kcal)</label>
+            <input id="foodCal" type="number" placeholder="0" class="w-full px-2 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg">
+          </div>
+          <div>
+            <label class="text-[11px] text-blue-500">蛋白质(g)</label>
+            <input id="foodPro" type="number" placeholder="0" class="w-full px-2 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg">
+          </div>
+          <div>
+            <label class="text-[11px] text-amber-500">碳水(g)</label>
+            <input id="foodCarb" type="number" placeholder="0" class="w-full px-2 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg">
+          </div>
+          <div>
+            <label class="text-[11px] text-rose-500">脂肪(g)</label>
+            <input id="foodFat" type="number" placeholder="0" class="w-full px-2 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg">
+          </div>
+        </div>
+
+        <button onclick="addMealRecord()" class="w-full py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl shadow-sm active:bg-emerald-700 transition">
+          + 添加到今日膳食记录
+        </button>
+      </div>
+    </section>
+
+    <!-- 3. 今日膳食流水日志 -->
+    <section class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="text-sm font-bold text-slate-800">📋 今日饮食记录</h2>
+        <button onclick="clearTodayLogs()" class="text-xs text-rose-500">清空今日</button>
+      </div>
+      <div id="mealList" class="space-y-2.5 text-sm"></div>
+    </section>
+
+  </main>
+
+  <!-- 个人身体参数与 API 设置弹窗 -->
+  <div id="settingsModal" class="fixed inset-0 bg-black/50 z-30 hidden flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="font-bold text-base">身体参数与 AI 接口配置</h3>
+        <button onclick="toggleModal('settingsModal')" class="text-slate-400 text-xl">&times;</button>
+      </div>
+
+      <div class="space-y-3 text-sm">
+        <p class="text-xs font-semibold text-slate-400 uppercase">1. 个人代谢计算 (Mifflin-St Jeor)</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-500">性别</label>
+            <select id="userGender" class="w-full p-2 border rounded-lg bg-slate-50">
+              <option value="male">男</option>
+              <option value="female">女</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">年龄</label>
+            <input id="userAge" type="number" value="24" class="w-full p-2 border rounded-lg bg-slate-50">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">身高 (cm)</label>
+            <input id="userHeight" type="number" value="175" class="w-full p-2 border rounded-lg bg-slate-50">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500">体重 (kg)</label>
+            <input id="userWeight" type="number" value="70" class="w-full p-2 border rounded-lg bg-slate-50">
+          </div>
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-500">日常活动强度</label>
+          <select id="userActivity" class="w-full p-2 border rounded-lg bg-slate-50">
+            <option value="1.2">久坐办公/实验室（几乎不运动）</option>
+            <option value="1.375" selected>轻度活动（每周运动 1-3 次）</option>
+            <option value="1.55">中度活动（每周运动 3-5 次）</option>
+            <option value="1.725">高强度（每周运动 6-7 次）</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="text-xs text-slate-500">阶段目标</label>
+          <select id="userGoal" class="w-full p-2 border rounded-lg bg-slate-50">
+            <option value="-400">减脂塑形 (-400 kcal)</option>
+            <option value="0" selected>保持体重 (维持 TDEE)</option>
+            <option value="300">干净增肌 (+300 kcal)</option>
+          </select>
+        </div>
+
+        <div class="pt-3 border-t">
+          <p class="text-xs font-semibold text-slate-400 uppercase mb-1">2. 视觉大模型配置 (可选)</p>
+          <label class="text-xs text-slate-500">Gemini API Key（留空则使用本地模拟识别）</label>
+          <input id="apiKeyInput" type="password" placeholder="AIzaSy..." class="w-full p-2 border rounded-lg bg-slate-50 mt-1">
+          <p class="text-[11px] text-slate-400 mt-1">Key 仅保存在你手机浏览器的本地存储中。</p>
+        </div>
+      </div>
+
+      <button onclick="saveSettings()" class="w-full py-2.5 bg-slate-900 text-white font-bold rounded-xl text-sm">
+        保存并重新计算每日目标
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let state = {
+      targets: { cal: 2000, pro: 150, carb: 200, fat: 65 },
+      meals: [],
+      apiKey: ''
+    };
+
+    // ================= PWA 注册与离线监测 =================
+    let deferredPrompt = null;
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('Service Worker 注册成功:', reg.scope))
+          .catch(err => console.warn('Service Worker 注册失败:', err));
+      });
+    }
+
+    // 监听 Android Chrome 安装提示事件
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      document.getElementById('installBtn').classList.remove('hidden');
+    });
+
+    async function triggerInstall() {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        document.getElementById('installBtn').classList.add('hidden');
+      }
+      deferredPrompt = null;
+    }
+
+    // 监听网络在线/离线切换
+    function updateOnlineStatus() {
+      const badge = document.getElementById('netStatus');
+      if (navigator.onLine) {
+        badge.innerText = '在线';
+        badge.className = 'text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600 font-medium';
+      } else {
+        badge.innerText = '离线模式';
+        badge.className = 'text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium';
+      }
+    }
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    // ================= 核心业务逻辑 =================
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('currentDate').innerText = new Date().toLocaleDateString('zh-CN', {
+        month: 'long', day: 'numeric', weekday: 'long'
+      });
+      updateOnlineStatus();
+      loadFromStorage();
+      renderDashboard();
+    });
+
+    function toggleModal(id) {
+      document.getElementById(id).classList.toggle('hidden');
+    }
+
+    function saveSettings() {
+      const gender = document.getElementById('userGender').value;
+      const age = parseFloat(document.getElementById('userAge').value) || 24;
+      const height = parseFloat(document.getElementById('userHeight').value) || 175;
+      const weight = parseFloat(document.getElementById('userWeight').value) || 70;
+      const activity = parseFloat(document.getElementById('userActivity').value) || 1.375;
+      const goalOffset = parseFloat(document.getElementById('userGoal').value) || 0;
+
+      const s = gender === 'male' ? 5 : -161;
+      const bmr = 10 * weight + 6.25 * height - 5 * age + s;
+      const tdee = Math.round(bmr * activity + goalOffset);
+
+      state.targets = {
+        cal: tdee,
+        pro: Math.round((tdee * 0.30) / 4),
+        carb: Math.round((tdee * 0.45) / 4),
+        fat: Math.round((tdee * 0.25) / 9)
+      };
+      state.apiKey = document.getElementById('apiKeyInput').value.trim();
+
+      saveToStorage();
+      renderDashboard();
+      toggleModal('settingsModal');
+    }
+
+    async function handleImageUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const base64DataUrl = await compressImage(file, 800, 0.75);
+      document.getElementById('imagePreview').src = base64DataUrl;
+      document.getElementById('previewContainer').classList.remove('hidden');
+      document.getElementById('uploadPrompt').classList.add('hidden');
+
+      const base64Clean = base64DataUrl.split(',')[1];
+      analyzeFoodWithAI(base64Clean, file.type || 'image/jpeg');
+    }
+
+    function compressImage(file, maxWidth, quality) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (e) => {
+          const img = new Image();
+          img.src = e.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          };
+        };
+      });
+    }
+
+    async function analyzeFoodWithAI(base64Image, mimeType) {
+      const loading = document.getElementById('aiLoading');
+      loading.classList.remove('hidden');
+
+      if (!state.apiKey || !navigator.onLine) {
+        setTimeout(() => {
+          loading.classList.add('hidden');
+          simulateAIRecognition();
+        }, 800);
+        return;
+      }
+
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${state.apiKey}`;
+        const prompt = `请识别图片中的食物并估算其总重量和营养成分。只返回严格的JSON格式，不要Markdown代码块：
+        {"name": "食物中文名称与估算克重", "cal": 整数千卡, "pro": 蛋白质克数整数, "carb": 碳水克数整数, "fat": 脂肪克数整数}`;
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: base64Image } }
+              ]
+            }]
+          })
+        });
+
+        const data = await response.json();
+        const rawText = data.candidates[0].content.parts[0].text;
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const result = JSON.parse(jsonMatch[0]);
+          fillFoodForm(result.name, result.cal, result.pro, result.carb, result.fat);
+        }
+      } catch (err) {
+        alert('API 请求失败或处于离线状态，已填入参考估算值，您可手动微调。');
+        simulateAIRecognition();
+      } finally {
+        loading.classList.add('hidden');
+      }
+    }
+
+    function simulateAIRecognition() {
+      const presets = [
+        { name: '黑椒牛排便当 (约420g)', cal: 610, pro: 42, carb: 58, fat: 22 },
+        { name: '食堂两荤一素快餐 (约500g)', cal: 680, pro: 31, carb: 75, fat: 28 },
+        { name: '香煎鸡胸肉藜麦沙拉 (约350g)', cal: 390, pro: 38, carb: 32, fat: 11 },
+        { name: '红烧牛肉面加卤蛋 (约550g)', cal: 720, pro: 34, carb: 88, fat: 25 }
+      ];
+      const pick = presets[Math.floor(Math.random() * presets.length)];
+      fillFoodForm(pick.name, pick.cal, pick.pro, pick.carb, pick.fat);
+    }
+
+    function fillFoodForm(name, cal, pro, carb, fat) {
+      document.getElementById('foodName').value = name;
+      document.getElementById('foodCal').value = cal;
+      document.getElementById('foodPro').value = pro;
+      document.getElementById('foodCarb').value = carb;
+      document.getElementById('foodFat').value = fat;
+    }
+
+    function addMealRecord() {
+      const name = document.getElementById('foodName').value.trim() || '未命名餐食';
+      const cal = parseInt(document.getElementById('foodCal').value) || 0;
+      const pro = parseInt(document.getElementById('foodPro').value) || 0;
+      const carb = parseInt(document.getElementById('foodCarb').value) || 0;
+      const fat = parseInt(document.getElementById('foodFat').value) || 0;
+
+      if (cal <= 0 && pro <= 0 && carb <= 0 && fat <= 0) {
+        alert('请先拍照识别或输入食物营养数值');
+        return;
+      }
+
+      const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      state.meals.unshift({ id: Date.now(), time, name, cal, pro, carb, fat });
+
+      fillFoodForm('', '', '', '', '');
+      saveToStorage();
+      renderDashboard();
+    }
+
+    function deleteMeal(id) {
+      state.meals = state.meals.filter(m => m.id !== id);
+      saveToStorage();
+      renderDashboard();
+    }
+
+    function clearTodayLogs() {
+      if (confirm('确定清空今日所有饮食记录吗？')) {
+        state.meals = [];
+        saveToStorage();
+        renderDashboard();
+      }
+    }
+
+    function renderDashboard() {
+      const totals = state.meals.reduce((acc, m) => ({
+        cal: acc.cal + m.cal,
+        pro: acc.pro + m.pro,
+        carb: acc.carb + m.carb,
+        fat: acc.fat + m.fat
+      }), { cal: 0, pro: 0, carb: 0, fat: 0 });
+
+      document.getElementById('calCurrent').innerText = totals.cal;
+      document.getElementById('calTarget').innerText = state.targets.cal;
+      const remain = state.targets.cal - totals.cal;
+      const remainEl = document.getElementById('calRemain');
+      remainEl.innerText = (remain >= 0 ? `${remain} kcal` : `超标 ${Math.abs(remain)} kcal`);
+      remainEl.className = `text-lg font-bold ${remain >= 0 ? 'text-emerald-600' : 'text-rose-600'}`;
+
+      document.getElementById('proCurrent').innerText = totals.pro;
+      document.getElementById('proTarget').innerText = state.targets.pro;
+      document.getElementById('carbCurrent').innerText = totals.carb;
+      document.getElementById('carbTarget').innerText = state.targets.carb;
+      document.getElementById('fatCurrent').innerText = totals.fat;
+      document.getElementById('fatTarget').innerText = state.targets.fat;
+
+      setBar('calBar', totals.cal, state.targets.cal);
+      setBar('proBar', totals.pro, state.targets.pro);
+      setBar('carbBar', totals.carb, state.targets.carb);
+      setBar('fatBar', totals.fat, state.targets.fat);
+
+      const listEl = document.getElementById('mealList');
+      if (state.meals.length === 0) {
+        listEl.innerHTML = `<p class="text-center text-slate-400 py-4 text-xs">今日暂无记录，拍张照片添加第一餐吧</p>`;
+        return;
+      }
+
+      listEl.innerHTML = state.meals.map(m => `
+        <div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">${m.time}</span>
+              <span class="font-bold text-slate-800">${m.name}</span>
+            </div>
+            <div class="text-xs text-slate-500 mt-1 space-x-2">
+              <span class="text-blue-600">蛋白 ${m.pro}g</span>
+              <span class="text-amber-600">碳水 ${m.carb}g</span>
+              <span class="text-rose-600">脂肪 ${m.fat}g</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="font-extrabold text-slate-800">${m.cal} <small class="font-normal text-slate-400">kcal</small></span>
+            <button onclick="deleteMeal(${m.id})" class="text-slate-300 hover:text-rose-500 text-lg">&times;</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function setBar(id, current, target) {
+      const pct = Math.min(100, Math.round((current / (target || 1)) * 100));
+      document.getElementById(id).style.width = `${pct}%`;
+    }
+
+    function saveToStorage() {
+      localStorage.setItem('ai_macro_tracker_v1', JSON.stringify(state));
+    }
+
+    function loadFromStorage() {
+      const saved = localStorage.getItem('ai_macro_tracker_v1');
+      if (saved) {
+        state = JSON.parse(saved);
+        document.getElementById('apiKeyInput').value = state.apiKey || '';
+      }
+    }
+  </script>
+</body>
+</html>
